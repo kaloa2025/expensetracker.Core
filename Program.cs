@@ -1,23 +1,50 @@
+using expenseTracker.Core.Extensions;
+using Serilog;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
 
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Host.UseSerilog();
 
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+try
 {
-    app.MapOpenApi();
+    // Add services to the container
+    builder.Services.AddDatabase(builder.Configuration);
+    builder.Services.AddApplicationServices(builder.Configuration);
+    builder.Services.AddAutoMapperConfig();
+    builder.Services.AddValidationConfig();
+    builder.Services.AddJwtAuthentication(builder.Configuration);
+    builder.Services.AddCorsConfig(builder.Configuration);
+    builder.Services.AddSwaggerConfig(); // Add this line
+    builder.Services.AddHealthChecksConfig(builder.Configuration); // Add this line
+
+    var app = builder.Build();
+
+    // Configure the HTTP request pipeline
+    app.ConfigurePipeline();
+
+    // Initialize database - this might be causing the issue
+    await app.InitializeDatabaseAsync();
+
+    // Start background services
+    app.StartBackgroundServices();
+
+    Log.Information("Starting ExpenseTracker Core API");
+
+    await app.RunAsync();
 }
-
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-
-app.MapControllers();
-
-app.Run();
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
